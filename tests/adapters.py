@@ -593,7 +593,7 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
     from cs336_basics.bpe_training import run_train_bpe, run_train_bpe_parallel
-    return run_train_bpe(input_path, vocab_size, special_tokens, **kwargs)
+    return run_train_bpe_parallel(input_path, vocab_size, special_tokens, **kwargs)
 
 
 

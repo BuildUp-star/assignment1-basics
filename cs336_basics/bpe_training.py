@@ -3,6 +3,9 @@ import os
 import regex
 from collections import Counter
 from typing import List, Tuple, Dict
+from multiprocessing import Pool, cpu_count
+from cs336_basics.pretokenization_example import find_chunk_boundaries
+from functools import lru_cache
 
 def run_train_bpe(
     input_path: str | os.PathLike,
@@ -137,23 +140,17 @@ def run_train_bpe(
     return vocab, merges
 
 
-import os
-import re
-import regex
-from collections import Counter
-from typing import List, Tuple, Dict
-from multiprocessing import Pool, cpu_count
-from cs336_basics.pretokenization_example import find_chunk_boundaries
-
-# GPT-2 style pre-tokenizer regex pattern, compiled once at module level.
-PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-_tokenizer = regex.compile(PAT)
+@lru_cache(maxsize=None)
+def get_tokenizer():
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    return regex.compile(PAT)
 
 def _count_chunk(args: tuple) -> Counter:
     """
     Worker process: counts byte-sequence tokens in a given file chunk.
     This function must be at the top level for multiprocessing.
     """
+    _tokenizer = get_tokenizer()
     path, start, end, special_tokens_list = args
     local_counter = Counter()
     # Use a set for faster lookups inside the worker
@@ -198,6 +195,8 @@ def run_train_bpe_parallel(
     Trains a byte-level BPE tokenizer using parallel pre-tokenization
     and an optimized merge loop.
     """
+    _tokenizer = get_tokenizer()
+
     # STAGE 1: PARALLEL PRE-TOKENIZATION
     # ====================================
 
