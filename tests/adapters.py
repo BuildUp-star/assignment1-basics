@@ -592,94 +592,9 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
+    from cs336_basics.bpe_training import run_train_bpe
+    return run_train_bpe(input_path, vocab_size, special_tokens, **kwargs)
 
-    import re
-    import regex
-    from collections import Counter
-    from typing import List, Tuple, Dict
 
-    # GPT-2 风格的 pre-tokenizer 正则
-    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
-    # 1. 读入全文
-    with open(input_path, 'r', encoding='utf-8') as f:
-        data = f.read()
-
-    # 2. 按 special_tokens 切分，保证合并不跨文档边界
-    if special_tokens:
-        esc = [re.escape(tok) for tok in special_tokens]
-        parts = re.split("(" + "|".join(esc) + ")", data)
-        # 保留切分出来的 special token 作为独立 segment
-    else:
-        parts = [data]
-
-    # 3. 预分词并统计每种 pre-token（转为单字节序列）的出现次数
-    tokenizer = regex.compile(PAT)
-    seq_counts: Counter = Counter()
-    for part in parts:
-        # special token 本身也要保留为一个 pre-token
-        if part in special_tokens:
-            b = part.encode('utf-8')
-            # 把整个 special token 看成一个“字节串序列”
-            seq_counts[(b,)] += 1
-            continue
-        # 用正则切分
-        for m in tokenizer.finditer(part):
-            tok = m.group(0).encode('utf-8')
-            seq = tuple(bytes([b]) for b in tok)  # e.g. b"hi" -> (b'h', b'i')
-            seq_counts[seq] += 1
-
-    # 4. 迭代执行 BPE 合并
-    merges: List[Tuple[bytes, bytes]] = []
-    num_merges = max(0, vocab_size - (256 + len(special_tokens)))
-    for _ in range(num_merges):
-        # 4.1 统计所有相邻字节对的频次
-        pair_counts: Counter = Counter()
-        for seq, cnt in seq_counts.items():
-            for i in range(len(seq) - 1):
-                pair = (seq[i], seq[i + 1])
-                pair_counts[pair] += cnt
-        if not pair_counts:
-            break
-
-        # 4.2 找到最频繁、并在并列时取 lexicographically 最大的 pair
-        max_count = max(pair_counts.values())
-        candidates = [p for p, c in pair_counts.items() if c == max_count]
-        best = max(candidates)
-        merges.append(best)
-
-        # 4.3 在所有序列中替换这个 pair
-        new_seq_counts: Counter = Counter()
-        A, B = best
-        for seq, cnt in seq_counts.items():
-            merged: List[bytes] = []
-            i = 0
-            while i < len(seq):
-                if i < len(seq) - 1 and seq[i] == A and seq[i + 1] == B:
-                    merged.append(A + B)  # 合并为一个新 token
-                    i += 2
-                else:
-                    merged.append(seq[i])
-                    i += 1
-            new_seq_counts[tuple(merged)] += cnt
-        seq_counts = new_seq_counts
-
-    # 5. 构建最终 vocab: [special_tokens..., 0..255 bytes, merges...]
-    vocab: Dict[int, bytes] = {}
-    idx = 0
-    # 5.1 special tokens
-    for tok in special_tokens:
-        vocab[idx] = tok.encode('utf-8')
-        idx += 1
-    # 5.2 初始 256 个单字节
-    for b in range(256):
-        vocab[idx] = bytes([b])
-        idx += 1
-    # 5.3 按顺序新增 merges 产生的子词
-    for (a, b) in merges:
-        vocab[idx] = a + b
-        idx += 1
-
-    return vocab, merges
 
         
