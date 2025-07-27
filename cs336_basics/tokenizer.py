@@ -41,7 +41,7 @@ class Tokenizer:
 
         # compile a regex to split out special tokens
         if self.special_tokens:
-            escaped = [re.escape(tok) for tok in self.special_tokens]
+            escaped = [re.escape(tok) for tok in sorted(self.special_tokens, key=len, reverse=True)]
             pattern = '(' + '|'.join(escaped) + ')'
             self._special_split = re.compile(pattern)
         else:
