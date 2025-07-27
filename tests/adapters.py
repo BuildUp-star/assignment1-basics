@@ -592,8 +592,8 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.parallel_bpe_training import run_train_bpe_parallel
-    return run_train_bpe_parallel(input_path, vocab_size, special_tokens, **kwargs)
+    from cs336_basics.bpe_training import run_train_bpe
+    return run_train_bpe(input_path, vocab_size, special_tokens, **kwargs)
 
 
 
