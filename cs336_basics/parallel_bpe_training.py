@@ -4,17 +4,17 @@ import regex
 from collections import Counter
 from typing import List, Tuple, Dict
 from multiprocessing import Pool, cpu_count
-
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 
-# GPT-2 style pre-tokenizer regex
+# GPT-2 style pre-tokenizer regex pattern
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 _tokenizer = regex.compile(PAT)
 
+# Worker function must be at top-level for multiprocessing
 
 def _count_chunk(args) -> Counter:
     """
-    Worker function: read a file chunk, pre-tokenize, count byte-sequence tokens.
+    Worker: count byte-sequence tokens in a file chunk.
     """
     path, start, end, specials = args
     local_ctr = Counter()
@@ -23,7 +23,7 @@ def _count_chunk(args) -> Counter:
         data = f.read(end - start)
     text = data.decode('utf-8', errors='ignore')
 
-    # Split on special tokens, preserving them as separate parts
+    # split on special tokens, preserving them
     if specials:
         escaped = "|".join(re.escape(tok) for tok in specials)
         parts = re.split(f"({escaped})", text)
@@ -43,42 +43,32 @@ def _count_chunk(args) -> Counter:
 
 
 def run_train_bpe_parallel(
-    input_path: str,
+    input_path: str | os.PathLike,
     vocab_size: int,
-    special_tokens: List[str]
-) -> Tuple[Dict[int, bytes], List[Tuple[bytes, bytes]]]:
-    """
-    Train a byte-level BPE tokenizer, using parallel pre-tokenization.
-
-    Args:
-      input_path: Path to the training text file.
-      vocab_size: Desired maximum vocabulary size (including 256 byte tokens, special tokens, and merges).
-      special_tokens: List of strings that should never be split during training.
-
-    Returns:
-      vocab: A dict mapping token IDs to token byte sequences.
-      merges: A list of byte-pair merges in the order they were created.
-    """
-    # Determine split token for chunk boundaries
+    special_tokens: list[str],
+    **kwargs,
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    """Train a byte-level BPE tokenizer with parallel pre-tokenization."""
+    # 1. determine chunk boundaries via special token
     split_tok = special_tokens[0].encode('utf-8') if special_tokens else b'\n'
     with open(input_path, 'rb') as f:
         num_chunks = cpu_count()
         boundaries = find_chunk_boundaries(f, num_chunks, split_tok)
 
-    # Prepare tasks for worker processes
-    tasks = [(input_path, start, end, special_tokens)
-             for start, end in zip(boundaries[:-1], boundaries[1:])]
+    # 2. create tasks for each file chunk
+    tasks = [(input_path, st, ed, special_tokens)
+             for st, ed in zip(boundaries[:-1], boundaries[1:])]
 
-    # Parallel pre-tokenization and counting
+    # 3. parallel count pre-token byte sequences
     with Pool(num_chunks) as pool:
-        partial_counters = pool.map(_count_chunk, tasks)
+        partials = pool.map(_count_chunk, tasks)
 
-    # Merge partial counts into global sequence counts
+    # 4. merge partial counters
     seq_counts = Counter()
-    for pc in partial_counters:
-        seq_counts.update(pc)
+    for p in partials:
+        seq_counts.update(p)
 
-    # Perform BPE merges iteratively
+    # 5. iterative BPE merges
     merges: List[Tuple[bytes, bytes]] = []
     num_merges = max(0, vocab_size - (256 + len(special_tokens)))
     for _ in range(num_merges):
@@ -88,20 +78,19 @@ def run_train_bpe_parallel(
                 pair_counts[(seq[i], seq[i+1])] += cnt
         if not pair_counts:
             break
-
-        max_count = max(pair_counts.values())
-        candidates = [p for p, c in pair_counts.items() if c == max_count]
+        max_c = max(pair_counts.values())
+        candidates = [p for p, c in pair_counts.items() if c == max_c]
         best = max(candidates)
         merges.append(best)
 
-        # Apply merge to all sequences
+        # apply merge
         A, B = best
         new_counts = Counter()
         for seq, cnt in seq_counts.items():
             merged_seq: List[bytes] = []
             i = 0
             while i < len(seq):
-                if i < len(seq) - 1 and seq[i] == A and seq[i+1] == B:
+                if i < len(seq)-1 and seq[i] == A and seq[i+1] == B:
                     merged_seq.append(A + B)
                     i += 2
                 else:
@@ -110,17 +99,14 @@ def run_train_bpe_parallel(
             new_counts[tuple(merged_seq)] += cnt
         seq_counts = new_counts
 
-    # Build the final vocabulary: special tokens, single-byte tokens, then merges
+    # 6. build final vocab
     vocab: Dict[int, bytes] = {}
     idx = 0
     for tok in special_tokens:
-        vocab[idx] = tok.encode('utf-8')
-        idx += 1
+        vocab[idx] = tok.encode('utf-8'); idx += 1
     for b in range(256):
-        vocab[idx] = bytes([b])
-        idx += 1
+        vocab[idx] = bytes([b]); idx += 1
     for A, B in merges:
-        vocab[idx] = A + B
-        idx += 1
+        vocab[idx] = A + B; idx += 1
 
     return vocab, merges

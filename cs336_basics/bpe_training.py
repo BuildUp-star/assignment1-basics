@@ -44,7 +44,7 @@ def run_train_bpe(
         # If this part exactly matches a special token, count it as a single token
         if part in special_tokens:
             token_bytes = part.encode('utf-8')
-            seq_counts[(token_bytes,)] += 1
+            #seq_counts[(token_bytes,)] += 1
             continue
         # Otherwise, apply regex to find pre-tokens
         for match in tokenizer.finditer(part):
