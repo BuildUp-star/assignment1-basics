@@ -31,8 +31,23 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
+    from cs336_basics.linear import Linear
+    # 1. Instantiate our Linear module with matching device & dtype
+    linear = Linear(
+        in_features=d_in,
+        out_features=d_out,
+        device=weights.device,
+        dtype=weights.dtype
+    )
 
-    raise NotImplementedError
+    # 2. Copy in the provided weights (in‐place, no grad tracking)
+    #    This replaces the random init from __init__ with the user's tensor.
+    with torch.no_grad():
+        linear.weight.copy_(weights)
+
+    # 3. Forward pass: will handle any leading batch/spatial dims
+    return linear(in_features)
+
 
 
 def run_embedding(
@@ -303,7 +318,7 @@ def run_transformer_lm(
         num_heads (int): Number of heads to use in multi-headed attention. `d_model` must be
             evenly divisible by `num_heads`.
         d_ff (int): Dimensionality of the feed-forward inner layer (section 3.3).
-        rope_theta (float): The RoPE $\Theta$ parameter.
+        rope_theta (float): The RoPE $Theta$ parameter.
         weights (dict[str, Tensor]):
             State dict of our reference implementation. {num_layers} refers to an
             integer between `0` and `num_layers - 1` (the layer index).
