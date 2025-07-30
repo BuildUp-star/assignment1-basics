@@ -68,8 +68,19 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    from cs336_basics.embedding import Embedding
+    # Instantiate our custom Embedding module
+    embedding = Embedding(
+        num_embeddings=vocab_size,
+        embedding_dim=d_model,
+        device=weights.device,
+        dtype=weights.dtype
+    )
+    # Copy provided weights into the module's parameters without tracking gradients
+    with torch.no_grad():
+        embedding.weight.copy_(weights)
+    # Perform lookup and return result
+    return embedding(token_ids)
 
 
 def run_swiglu(
