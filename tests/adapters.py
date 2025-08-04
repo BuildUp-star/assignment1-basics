@@ -247,7 +247,7 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    from cs336_basics.rope import RotaryPositionalEmbedding as RoPE
+    from cs336_basics.rope import RoPE
     rope = RoPE(
         d_k=d_k,
         theta=theta,

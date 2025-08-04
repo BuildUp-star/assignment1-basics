@@ -1,6 +1,42 @@
 import torch
 import torch.nn as nn
 
+class RoPE(nn.Module):
+    """
+    An efficient RoPE manager.
+
+    It uses a cache to ensure that for any given set of configuration parameters
+    (d_k, theta, ...), the underlying RotaryPositionalEmbedding module is
+    only instantiated once.
+    """
+    # A class-level dictionary to cache instances. Its lifecycle is as long as the RoPE class itself.
+    _cached_instances = {}
+
+    def __init__(self, d_k: int, theta: float, max_seq_len: int, device=None):
+        super().__init__()
+        
+        # Create a unique key to identify this configuration.
+        # Note: the torch.device object itself is not hashable, but its string representation is.
+        key = (d_k, theta, max_seq_len, str(device))
+
+        # Check if an instance for this configuration is already cached.
+        if key not in RoPE._cached_instances:
+            # If not, create a new underlying instance and store it in the cache.
+            print(f"--- [RoPE Cache] Key {key} not found. Creating and caching new instance. ---")
+            instance = RotaryPositionalEmbedding(
+                theta=theta, 
+                d_k=d_k, 
+                max_seq_len=max_seq_len, 
+                device=device
+            )
+            RoPE._cached_instances[key] = instance
+        else:
+            print(f"--- [RoPE Cache] Key {key} found. Reusing cached instance. ---")
+
+        # Directly point this instance's `forward` method to the `forward` method of the cached instance.
+        # This is a trick to make a call like `RoPE(x, pos)` directly equivalent to `instance(x, pos)`.
+        self.forward = RoPE._cached_instances[key].forward
+
 class RotaryPositionalEmbedding(nn.Module):
     """
     Implements Rotary Positional Embeddings (RoPE) as described in the paper
