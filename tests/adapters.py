@@ -112,6 +112,24 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
+    from cs336_basics.utils import SwiGLU
+        # 1. Instantiate the PositionwiseFeedForward module
+    # We pass the given d_model and d_ff to ensure the layers are created with the correct shapes.
+    ffn_module = SwiGLU(
+        d_model=d_model,
+        device=in_features.device,
+        dtype=in_features.dtype
+    )
+
+    # 2. Manually assign the provided weights to the module's parameters
+    # The .data attribute is used to replace the tensor content without breaking the parameter's connection to the module.
+    with torch.no_grad():
+        ffn_module.w1.weight.copy_(w1_weight)
+        ffn_module.w2.weight.copy_(w2_weight)
+        ffn_module.w3.weight.copy_(w3_weight)
+
+    # 3. Perform a forward pass using the module
+    return ffn_module(in_features)
     raise NotImplementedError
 
 
@@ -407,7 +425,19 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    from cs336_basics.rmsnorm import RMSNorm
+    # Instantiate our custom RMSNorm module
+    rmsnorm = RMSNorm(
+        d_model=d_model,
+        eps=eps,
+        device=weights.device,
+        dtype=weights.dtype
+    )
+    # Copy provided weights into the module's parameters without tracking gradients
+    with torch.no_grad():
+        rmsnorm.weight.copy_(weights)
+    # Perform forward pass and return result
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
