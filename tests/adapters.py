@@ -498,7 +498,20 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    # 1. Subtract the max for numerical stability.
+    # torch.max returns a tuple of (values, indices), so we extract the values tensor.
+    max_values = torch.max(in_features, dim=dim, keepdim=True).values
+    centered_features = in_features - max_values
+    
+    # 2. Exponentiate.
+    exp_features = centered_features.exp()
+    
+    # 3. Sum along the specified dimension to get the denominator.
+    # torch.sum directly returns a tensor with the sum, so .values is not needed.
+    sum_exp_features = torch.sum(exp_features, dim=dim, keepdim=True)
+    
+    # 4. Return the final result.
+    return exp_features / sum_exp_features
 
 
 def run_cross_entropy(
