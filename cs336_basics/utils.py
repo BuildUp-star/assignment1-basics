@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 from torch import device, dtype
 from cs336_basics.linear import Linear
+from jaxtyping import Float, Int
+
+import numpy.typing as npt
+import torch
+from torch import Tensor
+
 
 class SwiGLU(nn.Module):
     """
@@ -47,3 +53,57 @@ class SwiGLU(nn.Module):
         output = self.w2(gated)
         
         return output
+    
+def softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
+    """
+    Given a tensor of inputs, return the output of softmaxing the given `dim`
+    of the input.
+
+    Args:
+        in_features (Float[Tensor, "..."]): Input features to softmax. Shape is arbitrary.
+        dim (int): Dimension of the `in_features` to apply softmax to.
+
+    Returns:
+        Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
+        softmax normalizing the specified `dim`.
+    """
+    # 1. Subtract the max for numerical stability.
+    # torch.max returns a tuple of (values, indices), so we extract the values tensor.
+    max_values = torch.max(in_features, dim=dim, keepdim=True).values
+    centered_features = in_features - max_values
+    
+    # 2. Exponentiate.
+    exp_features = centered_features.exp()
+    
+    # 3. Sum along the specified dimension to get the denominator.
+    # torch.sum directly returns a tensor with the sum, so .values is not needed.
+    sum_exp_features = torch.sum(exp_features, dim=dim, keepdim=True)
+    
+    # 4. Return the final result.
+    return exp_features / sum_exp_features
+
+def scaled_dot_product_attention(
+    Q: Float[Tensor, " ... queries d_k"],
+    K: Float[Tensor, " ... keys d_k"],
+    V: Float[Tensor, " ... values d_v"],
+    mask: Float[Tensor, " ... queries keys"] | None = None,
+):
+    """
+    Given key (K), query (Q), and value (V) tensors, return
+    the output of your scaled dot product attention implementation.
+
+    Args:
+        Q (Float[Tensor, " ... queries d_k"]): Query tensor
+        K (Float[Tensor, " ... keys d_k"]): Key tensor
+        V (Float[Tensor, " ... values d_v"]): Values tensor
+        mask (Float[Tensor, " ... queries keys"] | None): Mask tensor
+    Returns:
+        Float[Tensor, " ... queries d_v"]: Output of SDPA
+    """
+    d_k = Q.shape[-1]
+    res = Q @ K.transpose(-2, -1) / torch.sqrt(torch.tensor(d_k))  # queries keys
+    if mask is not None:
+        res[mask == False] = float("-inf")  # Set masked positions to -inf for softmax
+    res = softmax(res, dim=-1)  # Apply softmax to the last dimension
+    res = res @ V  # Multiply by the values tensor
+    return res

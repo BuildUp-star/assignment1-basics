@@ -151,12 +151,10 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    d_k = Q.shape[-1]
-    res = Q @ K.transpose(-2, -1) / torch.sqrt(torch.tensor(d_k))  #queries keys
-    res[mask == False] = float("-inf")  # Set masked positions to -inf for softmax
-    res = run_softmax(res, dim=-1)  # Apply softmax to the last dimension
-    res = res @ V  # Multiply by the values tensor
-    return res
+
+    from cs336_basics.utils import scaled_dot_product_attention
+
+    return scaled_dot_product_attention(Q, K, V, mask=mask)
 
 
 def run_multihead_self_attention(
@@ -503,20 +501,9 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    # 1. Subtract the max for numerical stability.
-    # torch.max returns a tuple of (values, indices), so we extract the values tensor.
-    max_values = torch.max(in_features, dim=dim, keepdim=True).values
-    centered_features = in_features - max_values
-    
-    # 2. Exponentiate.
-    exp_features = centered_features.exp()
-    
-    # 3. Sum along the specified dimension to get the denominator.
-    # torch.sum directly returns a tensor with the sum, so .values is not needed.
-    sum_exp_features = torch.sum(exp_features, dim=dim, keepdim=True)
-    
-    # 4. Return the final result.
-    return exp_features / sum_exp_features
+    from cs336_basics.utils import softmax
+    # Call the softmax function with the specified dimension
+    return softmax(in_features, dim=dim)
 
 
 def run_cross_entropy(
