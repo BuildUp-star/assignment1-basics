@@ -10,7 +10,7 @@ from itertools import pairwise
 import numpy.typing as npt
 import torch
 from torch import Tensor
-
+from cs336_basics.transformer_block import CausalMultiHeadSelfAttention
 
 
 def run_linear(
@@ -188,7 +188,18 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    return run_multihead_self_attention_with_rope(
+        d_model=d_model,
+        num_heads=num_heads,
+        max_seq_len=-1,
+        theta=-1,
+        q_proj_weight=q_proj_weight,
+        k_proj_weight=k_proj_weight,
+        v_proj_weight=v_proj_weight,
+        o_proj_weight=o_proj_weight,
+        in_features=in_features,
+        token_positions=None
+    )
 
 
 def run_multihead_self_attention_with_rope(
@@ -228,7 +239,42 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    # 1. Get device and dtype from the input tensor for consistency.
+    device = in_features.device
+    dtype = in_features.dtype
+    seq_len = in_features.shape[-2]
+    
+    # Assuming the module is imported, e.g., from cs336_basics.transformer_block import CausalMultiHeadSelfAttention
+
+    # 2. Instantiate the CausalMultiHeadSelfAttention module.
+    attention_module = CausalMultiHeadSelfAttention(
+        d_model=d_model,
+        num_heads=num_heads,
+        device=device,
+        dtype=dtype
+    )
+    # Set the module to evaluation mode (e.g., this disables dropout if it were present).
+    attention_module.eval()
+
+    # 3. Concatenate the separate Q, K, and V weights into a single weight tensor for W_qkv.
+    # The weight of the W_qkv layer has a shape of (3 * d_model, d_model).
+    # We stack the three (d_model, d_model) weights along dim=0.
+    w_qkv_combined = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0)
+
+    # 4. Manually load the combined weights and the output weight into the module instance.
+    # Use `with torch.no_grad()` as a good practice since we are only loading weights and not training.
+    with torch.no_grad():
+        attention_module.W_qkv.weight.copy_(w_qkv_combined)
+        attention_module.W_o.weight.copy_(o_proj_weight)
+
+    # 6. Call the module's forward method.
+    # Note: We are now correctly passing the RoPE parameters `theta` and `max_seq_len`.
+    output = attention_module(x=in_features, 
+                              token_positions=token_positions, 
+                              theta=theta,
+                              max_seq_len=max_seq_len)
+
+    return output
 
 
 def run_rope(

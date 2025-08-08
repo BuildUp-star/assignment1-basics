@@ -103,7 +103,8 @@ def scaled_dot_product_attention(
     d_k = Q.shape[-1]
     res = Q @ K.transpose(-2, -1) / torch.sqrt(torch.tensor(d_k))  # queries keys
     if mask is not None:
-        res[mask == False] = float("-inf")  # Set masked positions to -inf for softmax
+        # res[mask == False] = float("-inf")  # Set masked positions to -inf for softmax
+        res = res.masked_fill(mask, -torch.inf)
     res = softmax(res, dim=-1)  # Apply softmax to the last dimension
     res = res @ V  # Multiply by the values tensor
     return res
