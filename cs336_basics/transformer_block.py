@@ -144,42 +144,45 @@ class CausalMultiHeadSelfAttention(nn.Module):
 
         return output
 
+from cs336_basics.rmsnorm import RMSNorm
+from cs336_basics.utils import SwiGLU
 
-class transformer_block(nn.Module):
+class TransformerBlock(nn.Module):
     """
-    A Transformer block that includes multi-head self-attention and a feed-forward network.
+    A complete Transformer block implementing a Pre-Norm architecture with
+    Causal Multi-Head Self-Attention and a SwiGLU Feed-Forward Network.
     """
-    def __init__(self, d_model: int, num_heads: int, d_ff: int, device: device | None = None, dtype: dtype | None = None):
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, device=None, dtype=None):
         super().__init__()
-        d_k = d_model // num_heads
-        self.W_q = Linear(d_model, d_k, device=device, dtype=dtype)
-        self.W_k = Linear(d_model, d_k, device=device, dtype=dtype)
-        self.W_v = Linear(d_model, d_k, device=device, dtype=dtype)
-
-        self.self_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, device=device, dtype=dtype)
-        self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
-        self.norm1 = nn.LayerNorm(d_model, device=device, dtype=dtype)
-        self.norm2 = nn.LayerNorm(d_model, device=device, dtype=dtype)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the transformer block.
+        # Layer Normalization before the attention block
+        self.ln1 = RMSNorm(d_model, device=device, dtype=dtype)
+        # Our fully implemented MHA module
+        self.attn = CausalMultiHeadSelfAttention(d_model, num_heads, device=device, dtype=dtype)
         
-        Args:
-            x (torch.Tensor): Input tensor of shape (..., d_model)
+        # Layer Normalization before the FFN block
+        self.ln2 = RMSNorm(d_model, device=device, dtype=dtype)
+        
+        # Instantiate the SwiGLU module directly
+        self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
 
-        Returns:
-            torch.Tensor: Output tensor of shape (..., d_model)
-        """
-        Q = x @ self.W_q.T
-        K = x @ self.W_k.T
-        V = x @ self.W_v.T
+    def forward(
+        self, 
+        x: torch.Tensor, 
+        token_positions: torch.Tensor, 
+        theta: float, 
+        max_seq_len: int
+    ) -> torch.Tensor:
+        # First residual connection: Attention
+        # Pre-Norm: Apply LayerNorm before passing to the attention module
+        attn_input = self.ln1(x)
+        attn_output = self.attn(attn_input, token_positions, theta, max_seq_len)
+        x = x + attn_output
 
-        attn_output = multi_head_attention(self.d_model, self.num_heads, Q, K, V)
-        x = self.norm1(x + attn_output)  # Add & Norm
-
-        # Feed-forward network
-        ffn_output = self.ffn(x)
-        x = self.norm2(x + ffn_output)  # Add & Norm
-
+        # Second residual connection: FFN
+        # Pre-Norm: Apply LayerNorm before passing to the FFN
+        ffn_input = self.ln2(x)
+        # A single, clean call to the FFN module
+        ffn_output = self.ffn(ffn_input)
+        x = x + ffn_output
+        
         return x

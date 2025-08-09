@@ -117,6 +117,7 @@ def run_swiglu(
     # We pass the given d_model and d_ff to ensure the layers are created with the correct shapes.
     ffn_module = SwiGLU(
         d_model=d_model,
+        d_ff=d_ff,
         device=in_features.device,
         dtype=in_features.dtype
     )
@@ -307,6 +308,7 @@ def run_rope(
     return rope(in_query_or_key, token_positions=token_positions)
 
 
+from cs336_basics.transformer_block import TransformerBlock
 def run_transformer_block(
     d_model: int,
     num_heads: int,
@@ -377,7 +379,59 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    # 1. Get device and dtype from the input tensor for consistency.
+    device = in_features.device
+    dtype = in_features.dtype
+    B, T, C = in_features.shape
+    # 2. Instantiate our corrected TransformerBlock module.
+    transformer_module = TransformerBlock(
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        device=device,
+        dtype=dtype
+    )
+    transformer_module.eval()
+
+    # 3. Load the weights into the module instance, layer by layer.
+    with torch.no_grad():
+        # Attention weights
+        q_w = weights['attn.q_proj.weight']
+        k_w = weights['attn.k_proj.weight']
+        v_w = weights['attn.v_proj.weight']
+        o_w = weights['attn.output_proj.weight']
+        
+        w_qkv_combined = torch.cat([q_w, k_w, v_w], dim=0)
+        transformer_module.attn.W_qkv.weight.copy_(w_qkv_combined)
+        transformer_module.attn.W_o.weight.copy_(o_w)
+
+        # LayerNorm weights
+        transformer_module.ln1.weight.copy_(weights['ln1.weight'])
+        #default no bias
+        if 'ln1.bias' in weights:
+             transformer_module.ln1.bias.copy_(weights['ln1.bias'])
+        
+        transformer_module.ln2.weight.copy_(weights['ln2.weight'])
+        if 'ln2.bias' in weights:
+             transformer_module.ln2.bias.copy_(weights['ln2.bias'])
+
+        # FFN (SwiGLU) weights are now loaded into the nested ffn module
+        transformer_module.ffn.w1.weight.copy_(weights['ffn.w1.weight'])
+        transformer_module.ffn.w2.weight.copy_(weights['ffn.w2.weight'])
+        transformer_module.ffn.w3.weight.copy_(weights['ffn.w3.weight'])
+
+    # 4. Create token positions since the attention module requires it.
+    token_positions = torch.arange(T, device=device).expand(B, T)
+
+    # 5. Call the module's forward method with all required arguments.
+    output = transformer_module(
+        x=in_features,
+        token_positions=token_positions,
+        theta=theta,
+        max_seq_len=max_seq_len
+    )
+
+    return output
 
 
 def run_transformer_lm(

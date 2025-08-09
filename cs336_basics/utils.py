@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import torch.nn as nn
 from torch import device, dtype
@@ -14,15 +15,18 @@ class SwiGLU(nn.Module):
     A position-wise feed-forward network using the SwiGLU activation.
     This implementation follows the Llama 2 architecture for its FFN layers.
     """
-    def __init__(self, d_model: int, device: device | None = None, dtype: dtype | None = None):
+    def __init__(self, d_model: int, d_ff: Optional[int] = None, device: device | None = None, dtype: dtype | None = None):
         super().__init__()
 
         # 1. Calculate the intermediate dimension (d_ff) as per the instructions.
         # This is a common practice in modern LLMs like Llama.
-        hidden_dim_approx = int(d_model * 8 / 3)
-        # Ensure d_ff is a multiple of 64 for hardware efficiency.
-        # This is an efficient way to round up to the nearest multiple.
-        self.d_ff = ((hidden_dim_approx + 63) // 64) * 64
+        if d_ff is None:
+            hidden_dim_approx = int(d_model * 8 / 3)
+            # Ensure d_ff is a multiple of 64 for hardware efficiency.
+            # This is an efficient way to round up to the nearest multiple.
+            d_ff = ((hidden_dim_approx + 63) // 64) * 64
+        else:
+            self.d_ff = d_ff
         
         factory_kwargs = {"device": device, "dtype": dtype}
 
