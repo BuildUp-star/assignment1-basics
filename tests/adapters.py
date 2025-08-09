@@ -433,7 +433,7 @@ def run_transformer_block(
 
     return output
 
-
+from cs336_basics.transformer_block import TransformerLM
 def run_transformer_lm(
     vocab_size: int,
     context_length: int,
@@ -513,7 +513,56 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    # 1. Instantiate the complete TransformerLM module with the given hyperparameters.
+    device = in_indices.device
+    dtype = weights['token_embeddings.weight'].dtype # Infer dtype from weights
+    
+    lm_module = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        num_layers=num_layers,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        device=device,
+        dtype=dtype,
+    )
+    lm_module.eval()
+
+    # 2. Manually load the weights from the dictionary into the module.
+    with torch.no_grad():
+        # Load top-level weights
+        lm_module.tok_embeddings.weight.copy_(weights['token_embeddings.weight'])
+        lm_module.norm.weight.copy_(weights['ln_final.weight'])
+        lm_module.output_proj.weight.copy_(weights['lm_head.weight'])
+
+        # Iterate through each layer to load its specific weights
+        for i in range(num_layers):
+            layer_module = lm_module.layers[i]
+            
+            # Load attention weights
+            q_w = weights[f'layers.{i}.attn.q_proj.weight']
+            k_w = weights[f'layers.{i}.attn.k_proj.weight']
+            v_w = weights[f'layers.{i}.attn.v_proj.weight']
+            o_w = weights[f'layers.{i}.attn.output_proj.weight']
+            
+            w_qkv_combined = torch.cat([q_w, k_w, v_w], dim=0)
+            layer_module.attn.W_qkv.weight.copy_(w_qkv_combined)
+            layer_module.attn.W_o.weight.copy_(o_w)
+
+            # Load LayerNorm weights for the block
+            layer_module.ln1.weight.copy_(weights[f'layers.{i}.ln1.weight'])
+            layer_module.ln2.weight.copy_(weights[f'layers.{i}.ln2.weight'])
+
+            # Load FFN weights for the block
+            layer_module.ffn.w1.weight.copy_(weights[f'layers.{i}.ffn.w1.weight'])
+            layer_module.ffn.w2.weight.copy_(weights[f'layers.{i}.ffn.w2.weight'])
+            layer_module.ffn.w3.weight.copy_(weights[f'layers.{i}.ffn.w3.weight'])
+
+    # 3. Run the forward pass of the model with the loaded weights.
+    output_logits = lm_module(in_indices, theta=rope_theta)
+    
+    return output_logits    
 
 
 def run_rmsnorm(

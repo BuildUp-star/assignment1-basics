@@ -186,3 +186,110 @@ class TransformerBlock(nn.Module):
         x = x + ffn_output
         
         return x
+
+from cs336_basics.embedding import Embedding    
+class TransformerLM(nn.Module):
+    """
+    A complete Transformer-based Language Model.
+    """
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        num_layers: int,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+    ):
+        """
+        Initializes the Transformer Language Model.
+
+        Args:
+            vocab_size (int): The size of the vocabulary.
+            context_length (int): The maximum sequence length (context window).
+            num_layers (int): The number of Transformer blocks to stack.
+            d_model (int): The dimensionality of the model's embeddings.
+            num_heads (int): The number of attention heads.
+            d_ff (int): The dimensionality of the FFN's inner layer.
+            device (torch.device, optional): The device for the model's parameters.
+            dtype (torch.dtype, optional): The data type for the model's parameters.
+        """
+        super().__init__()
+        factory_kwargs = {"device": device, "dtype": dtype}
+
+        # 1. Token Embedding Layer
+        # This layer maps token indices to dense vectors of size d_model.
+        self.tok_embeddings = Embedding(vocab_size, d_model, **factory_kwargs)
+        #
+        # 2. A stack of Transformer Blocks
+        # nn.ModuleList is the correct way to hold a list of sub-modules.
+        self.layers = nn.ModuleList(
+            [
+                TransformerBlock(d_model, num_heads, d_ff, **factory_kwargs)
+                for _ in range(num_layers)
+            ]
+        )
+        
+        # 3. Final Layer Normalization
+        # Applied after the last Transformer block, before the final projection.
+        self.norm = RMSNorm(d_model, **factory_kwargs)
+        
+        # 4. Output Projection Layer (Language Model Head)
+        # This layer maps the final d_model representations to logits over the vocabulary.
+        # It's common practice to tie the weights of this layer with the token embedding layer,
+        # but here we define it as a separate layer for clarity.
+        self.output_proj = Linear(d_model, vocab_size, **factory_kwargs)
+
+        # Store hyperparameters
+        self.context_length = context_length
+        self.num_layers = num_layers
+
+    def forward(
+        self,
+        input_ids: Int[Tensor, "batch sequence_length"],
+        theta: float = 10000.0,
+    ) -> Float[Tensor, "batch sequence_length vocab_size"]:
+        """
+        Performs the forward pass of the language model.
+
+        Args:
+            input_ids (Tensor): A tensor of token indices.
+            theta (float): The base period for RoPE, passed to the blocks.
+
+        Returns:
+            Tensor: A tensor of logits over the vocabulary.
+        """
+        B, T = input_ids.shape
+        if T > self.context_length:
+            raise ValueError(
+                f"Input sequence length ({T}) exceeds the model's context length ({self.context_length})"
+            )
+
+        # 1. Get token embeddings
+        # Shape: (B, T) -> (B, T, d_model)
+        x = self.tok_embeddings(input_ids)
+        
+        # 2. Create token positions for RoPE
+        # Shape: (T,) -> (B, T)
+        token_positions = torch.arange(T, device=x.device).expand(B, T)
+        
+        # 3. Pass through the stack of Transformer blocks
+        # The shape (B, T, d_model) is maintained through all layers.
+        for layer in self.layers:
+            x = layer(
+                x,
+                token_positions=token_positions,
+                theta=theta,
+                max_seq_len=self.context_length,
+            )
+            
+        # 4. Apply final normalization
+        x = self.norm(x)
+        
+        # 5. Project to vocabulary logits
+        # Shape: (B, T, d_model) -> (B, T, vocab_size)
+        logits = self.output_proj(x)
+        
+        return logits
