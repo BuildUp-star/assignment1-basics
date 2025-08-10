@@ -86,6 +86,48 @@ def softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ...
     # 4. Return the final result.
     return exp_features / sum_exp_features
 
+#Can't use this because of numerical stability issues with large logits.
+'''
+def cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
+) -> Float[Tensor, ""]:
+    sm = softmax(inputs, dim=-1)  # Apply softmax to the last dimension (vocab_size)
+    probs = sm.gather(dim=-1, index=targets.unsqueeze(-1)).squeeze(1)  # Gather probabilities for the target indices
+    log_probs = probs.clamp_min(1e-12).log()  # Take the log of the probabilities
+    loss = -log_probs.mean()  # Compute the mean negative log probability
+    return loss
+'''
+
+def cross_entropy(
+    inputs: Float[Tensor, "... vocab_size"],   # logits (NOT probabilities)
+    targets: Int[Tensor, "..."],               # class indices with shape == inputs.shape[:-1]
+) -> Float[Tensor, ""]:
+    """
+    Numerically-stable cross-entropy computed directly from logits, without torch.logsumexp.
+    Handles arbitrary batch dimensions; the last dimension is vocab_size.
+    """
+    # Ensure dtypes are right (targets must be long for gather)
+    if targets.dtype != torch.long:
+        targets = targets.long()
+
+    # 1) subtract max for numerical stability
+    # max_vals: [B, 1]
+    max_vals = inputs.max(dim=1, keepdim=True).values
+    centered = inputs - max_vals              # [B, V]
+
+    # 2) exp and sum over classes
+    sum_exp = centered.exp().sum(dim=1)       # [B]
+
+    # 3) manual logsumexp = max + log(sum(exp(centered)))
+    lse = max_vals.squeeze(1) + sum_exp.log() # [B]
+
+    # 4) pick the target class logit (original logits OK; or use centered + max equivalently)
+    y_logit = inputs.gather(dim=1, index=targets.unsqueeze(1)).squeeze(1)  # [B]
+
+    # 5) CE per-sample and average
+    loss = (lse - y_logit).mean()
+    return loss
+
+
 def scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys d_k"],
