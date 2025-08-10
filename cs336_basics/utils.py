@@ -8,6 +8,7 @@ from jaxtyping import Float, Int
 import numpy.typing as npt
 import torch
 from torch import Tensor
+import math
 
 
 class SwiGLU(nn.Module):
@@ -154,3 +155,41 @@ def scaled_dot_product_attention(
     res = softmax(res, dim=-1)  # Apply softmax to the last dimension
     res = res @ V  # Multiply by the values tensor
     return res
+
+#uv run pytest -k test_get_lr_cosine_schedule
+def get_lr_cosine_schedule(
+    it: int,
+    max_learning_rate: float,
+    min_learning_rate: float,
+    warmup_iters: int,
+    cosine_cycle_iters: int,
+):
+    """
+    Given the parameters of a cosine learning rate decay schedule (with linear
+    warmup) and an iteration number, return the learning rate at the given
+    iteration under the specified schedule.
+
+    Args:
+        it (int): Iteration number to get learning rate for.
+        max_learning_rate (float): alpha_max, the maximum learning rate for
+            cosine learning rate schedule (with warmup).
+        min_learning_rate (float): alpha_min, the minimum / final learning rate for
+            the cosine learning rate schedule (with warmup).
+        warmup_iters (int): T_w, the number of iterations to linearly warm-up
+            the learning rate.
+        cosine_cycle_iters (int): T_c, the number of cosine annealing iterations.
+
+    Returns:
+        Learning rate at the given iteration under the specified schedule.
+    """
+    if it < warmup_iters:
+        # Linear warmup phase
+        return max_learning_rate * it / warmup_iters
+    elif it < cosine_cycle_iters:
+        # Cosine decay phase
+        it -= warmup_iters  # Adjust iteration count to start from 0 after warmup
+        it = it / (cosine_cycle_iters - warmup_iters)  # Normalize to [0,1] for a single cosine cycle
+        return min_learning_rate + 0.5 * (max_learning_rate - min_learning_rate) * (1 + math.cos(it * math.pi))
+    else:
+        # After all warmup and cosine iterations, return min learning rate
+        return min_learning_rate

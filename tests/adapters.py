@@ -693,6 +693,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     return AdamW
 
 
+from cs336_basics.utils import get_lr_cosine_schedule
 def run_get_lr_cosine_schedule(
     it: int,
     max_learning_rate: float,
@@ -718,7 +719,13 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return get_lr_cosine_schedule(
+        it=it,
+        max_learning_rate=max_learning_rate,
+        min_learning_rate=min_learning_rate,
+        warmup_iters=warmup_iters,
+        cosine_cycle_iters=cosine_cycle_iters,
+    )
 
 
 def run_save_checkpoint(
