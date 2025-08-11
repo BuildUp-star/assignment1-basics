@@ -193,3 +193,73 @@ def get_lr_cosine_schedule(
     else:
         # After all warmup and cosine iterations, return min learning rate
         return min_learning_rate
+
+from collections.abc import Iterable
+#uv run pytest -k test_gradient_clipping
+def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+    """
+    Clip gradients by the *global* L2 norm (a.k.a. global-norm clipping).
+
+    Algorithm (global norm):
+      1) Conceptually concatenate all parameter gradients into a big vector g.
+      2) Compute total_norm = ||g||_2 = sqrt( sum_i ||grad_i||_2^2 ).
+      3) If total_norm <= M: do nothing.
+      4) Else scale every gradient in-place by: scale = M / (total_norm + eps).
+         This preserves each gradient's *direction* and only shrinks its *magnitude*.
+
+    Notes:
+      - Use `with torch.no_grad():` for in-place updates instead of `.data` (safer w.r.t autograd).
+      - When accumulating the norm, cast to float32 for numerical stability in mixed precision.
+      - Handle sparse gradients by operating on their non-zero values only:
+          g.coalesce().values() for reading; coalesce + _values().mul_() for in-place scaling.
+    """
+    eps = 1e-6  # small constant for numerical stability
+
+    # Materialize only parameters that *actually* have gradients
+    params = [p for p in parameters if (p is not None and p.grad is not None)]
+    if not params:
+        return
+
+    # Accumulate sum of squares on the grads' device, in float32 for stability
+    device = params[0].grad.device
+    total_sq = torch.zeros((), device=device, dtype=torch.float32)
+
+    # 1) Sum of squares across *all* gradients (dense + sparse)
+    for p in params:
+        g = p.grad
+        if g.is_sparse:
+            # Sparse gradients (COO): work on non-zero values only.
+            # coalesce() merges duplicate indices so each coordinate is unique.
+            v = g.coalesce().values().detach().float()
+            total_sq += (v * v).sum()
+        else:
+            # Dense gradients: read-only view, cast to float32 before squaring.
+            v = g.detach().float()
+            total_sq += (v * v).sum()
+
+    total_norm = total_sq.sqrt()
+
+    # 2) If already within the limit (or literally zero), nothing to do
+    if total_norm <= max_l2_norm or total_norm == 0:
+        return
+
+    # 3) Global scale factor; 0 < scale < 1 when clipping is needed
+    scale = max_l2_norm / (total_norm + eps)
+
+    # 4) In-place scaling under no-grad context (safe alternative to `.data`)
+    with torch.no_grad():
+        for p in params:
+            g = p.grad
+            if g.is_sparse:
+                # IMPORTANT: scale the *values* of the sparse COO grad
+                sg = g.coalesce()            # still a sparse tensor (indices + values)
+                sg._values().mul_(scale)     # in-place on non-zero values (dense view)
+                p.grad = sg                  # write back the *sparse* tensor (keep layout)
+                # DON'T do: p.grad = g.coalesce()._values().mul_(scale)
+                # That returns a dense values tensor and drops indices/layout.
+            else:
+                g.mul_(scale)                # dense: simple in-place multiply
+
+
+
+
