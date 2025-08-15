@@ -9,6 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 import math
+import numpy as np
 
 
 class SwiGLU(nn.Module):
@@ -261,5 +262,27 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
                 g.mul_(scale)                # dense: simple in-place multiply
 
 
+#uv run pytest -k test_get_batch
+def get_batch(x: np.ndarray, batch_size: int, context_length: int, device: torch.device):
+    # 1. Convert numpy array to torch tensor (on CPU first for indexing)
+    x_torch = torch.from_numpy(x)
+
+    # 2. Randomly choose starting indices for each sequence in the batch
+    # The max start index is len(x) - context_length - 1 to leave room for the target sequence
+    start_indices = torch.randint(0, len(x) - context_length, (batch_size,))
+
+    # 3. Create a 2D index matrix for vectorized slicing
+    # Shape: (batch_size, context_length)
+    seq_indices = start_indices.unsqueeze(1) + torch.arange(context_length)
+
+    # 4. Gather input sequences and target sequences (shifted by one token)
+    inputs = x_torch[seq_indices]
+    targets = x_torch[seq_indices + 1]
+
+    # 5. Move tensors to the specified device
+    inputs = inputs.to(device)
+    targets = targets.to(device)
+
+    return inputs, targets
 
 
