@@ -284,5 +284,54 @@ def get_batch(x: np.ndarray, batch_size: int, context_length: int, device: torch
     targets = targets.to(device)
 
     return inputs, targets
+# uv run pytest -k test_checkpointing
+def save_checkpoint(model, optimizer, iteration, out):
+    """
+    Save a training checkpoint including:
+      - current iteration number
+      - model parameters (weights, biases, etc.)
+      - optimizer state (e.g., momentum buffers for AdamW)
 
+    Args:
+        model (torch.nn.Module): The model to save.
+        optimizer (torch.optim.Optimizer): The optimizer to save.
+        iteration (int): Current training iteration number.
+        out (str | PathLike | BinaryIO): File path or file-like object to save checkpoint.
+    """
+    # Pack everything we need into a dictionary
+    checkpoint = {
+        "iteration": iteration,
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+    }
 
+    # Save checkpoint to file (binary format, handled by PyTorch)
+    torch.save(checkpoint, out)
+
+# uv run pytest -k test_checkpointing
+def load_checkpoint(src, model, optimizer):
+    """
+    Load a training checkpoint from file and restore:
+      - model parameters
+      - optimizer state
+      - iteration number
+
+    Args:
+        src (str | PathLike | BinaryIO): File path or file-like object to load checkpoint.
+        model (torch.nn.Module): The model to restore parameters into.
+        optimizer (torch.optim.Optimizer): The optimizer to restore state into.
+
+    Returns:
+        int: The iteration number saved in the checkpoint.
+    """
+    # Load the checkpoint (dictionary) from file
+    checkpoint = torch.load(src)
+
+    # Restore model weights
+    model.load_state_dict(checkpoint["model_state"])
+
+    # Restore optimizer state (momentum, learning rate buffers, etc.)
+    optimizer.load_state_dict(checkpoint["optimizer_state"])
+
+    # Return the saved iteration number so training can resume
+    return checkpoint["iteration"]
